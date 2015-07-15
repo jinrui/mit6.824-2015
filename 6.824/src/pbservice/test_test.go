@@ -192,7 +192,6 @@ func TestAtMostOnce(t *testing.T) {
 		sa[i] = StartServer(vshost, port(tag, i+1))
 		sa[i].setunreliable(true)
 	}
-
 	for iters := 0; iters < viewservice.DeadPings*2; iters++ {
 		view, _ := vck.Get()
 		if view.Primary != "" && view.Backup != "" {
@@ -506,7 +505,7 @@ func TestConcurrentSameAppend(t *testing.T) {
 	ck := MakeClerk(vshost, "")
 
 	// check that primary's copy of the value has all
-	// the Append()s.
+	// the Append().
 	primaryv := ck.Get("k")
 	checkAppends(t, primaryv, counts)
 
@@ -532,6 +531,7 @@ func TestConcurrentSameAppend(t *testing.T) {
 	// check that backup's copy of the value has all
 	// the Append()s.
 	backupv := ck.Get("k")
+	//fmt.Println("backupv", backupv)
 	checkAppends(t, backupv, counts)
 
 	if backupv != primaryv {
@@ -625,6 +625,7 @@ func TestConcurrentSameUnreliable(t *testing.T) {
 		}
 	}
 
+	//fmt.Println("vals:", vals)
 	// kill the primary
 	for i := 0; i < nservers; i++ {
 		if view1.Primary == sa[i].me {
@@ -868,6 +869,7 @@ func TestRepeatedCrashUnreliable(t *testing.T) {
 
 	ck := MakeClerk(vshost, "")
 
+	//fmt.Println(ck.Get("0"))
 	checkAppends(t, ck.Get("0"), counts)
 
 	ck.Put("aaa", "bbb")

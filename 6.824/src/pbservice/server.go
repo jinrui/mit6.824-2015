@@ -12,8 +12,6 @@ import "os"
 import "syscall"
 import "math/rand"
 
-
-
 type PBServer struct {
 	mu         sync.Mutex
 	l          net.Listener
@@ -22,25 +20,90 @@ type PBServer struct {
 	me         string
 	vs         *viewservice.Clerk
 	// Your declarations here.
+	currentView viewservice.View
+	kvdb        map[string]string
+	lastrpcid   map[string]int32
 }
-
 
 func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 
 	// Your code here.
-
+	pb.mu.Lock()
+	defer pb.mu.Unlock()
+	if pb.me != pb.currentView.Primary {
+		reply.Err = ErrWrongServer
+		return nil
+	}
+	if pb.lastrpcid[args.From] < args.Rpcid {
+		pb.lastrpcid[args.From] = args.Rpcid
+	}
+	if v, ok := pb.kvdb[args.Key]; ok {
+		reply.Value = v
+		reply.Err = OK
+		return nil
+	} else {
+		reply.Err = ErrNoKey
+		return nil
+	}
 	return nil
 }
 
+func (pb *PBServer) CopyToBackup(args *PutAppendArgs, reply *PutAppendReply) error {
+	pb.mu.Lock()
+	defer pb.mu.Unlock()
+	if pb.me == pb.currentView.Primary {
+		reply.Err = ErrWrongServer
+		return nil
+	}
+	if args.Op == "Put" {
+		pb.kvdb[args.Key] = args.Value
+		reply.Err = OK
+	} else if args.Op == "Append" {
+		reply.Err = OK
+		if v, ok := pb.kvdb[args.Key]; ok {
+			pb.kvdb[args.Key] = v + args.Value
+		} else {
+			pb.kvdb[args.Key] = args.Value
+		}
+	}
+	pb.lastrpcid[args.From] = args.Rpcid
+	return nil
+}
 
 func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 
 	// Your code here.
-
-
+	pb.mu.Lock()
+	defer pb.mu.Unlock()
+	if pb.me != pb.currentView.Primary {
+		reply.Err = ErrWrongServer
+		return nil
+	}
+	//fmt.Println("args.From", args.From)
+	if _, ok := pb.lastrpcid[args.From]; ok && args.Rpcid <= pb.lastrpcid[args.From] {
+		reply.Err = OK
+		return nil
+	}
+	if pb.me == pb.currentView.Primary && pb.currentView.Backup != "" {
+		ok := call(pb.currentView.Backup, "PBServer.CopyToBackup", args, &reply)
+		if reply.Err != OK || !ok {
+			return nil
+		}
+	}
+	pb.lastrpcid[args.From] = args.Rpcid
+	if args.Op == "Put" {
+		pb.kvdb[args.Key] = args.Value
+		reply.Err = OK
+	} else if args.Op == "Append" {
+		reply.Err = OK
+		if v, ok := pb.kvdb[args.Key]; ok {
+			pb.kvdb[args.Key] = v + args.Value
+		} else {
+			pb.kvdb[args.Key] = args.Value
+		}
+	}
 	return nil
 }
-
 
 //
 // ping the viewserver periodically.
@@ -49,8 +112,20 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 //   manage transfer of state from primary to new backup.
 //
 func (pb *PBServer) tick() {
-
 	// Your code here.
+	pb.mu.Lock()
+	defer pb.mu.Unlock()
+	currentView, _ := pb.vs.Ping(pb.currentView.Viewnum)
+	if pb.currentView.Primary != currentView.Primary || pb.currentView.Backup != currentView.Backup {
+		if currentView.Primary == pb.me && currentView.Backup != "" {
+			for k, v := range pb.kvdb {
+				args := &PutAppendArgs{k, v, "Put", pb.me, 0}
+				var reply PutAppendReply
+				call(currentView.Backup, "PBServer.CopyToBackup", args, &reply)
+			}
+		}
+	}
+	pb.currentView = currentView
 }
 
 // tell the server to shut itself down.
@@ -78,13 +153,14 @@ func (pb *PBServer) isunreliable() bool {
 	return atomic.LoadInt32(&pb.unreliable) != 0
 }
 
-
 func StartServer(vshost string, me string) *PBServer {
 	pb := new(PBServer)
 	pb.me = me
 	pb.vs = viewservice.MakeClerk(me, vshost)
 	// Your pb.* initializations here.
-
+	pb.currentView = viewservice.View{0, "", ""}
+	pb.kvdb = make(map[string]string)
+	pb.lastrpcid = make(map[string]int32)
 	rpcs := rpc.NewServer()
 	rpcs.Register(pb)
 
