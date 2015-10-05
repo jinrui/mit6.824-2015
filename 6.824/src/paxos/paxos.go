@@ -30,7 +30,7 @@ import "sync"
 import "sync/atomic"
 import "fmt"
 import "math/rand"
-
+import "time"
 
 // px.Status() return values, indicating
 // whether an agreement has been decided,
@@ -44,6 +44,13 @@ const (
 	Forgotten      // decided but forgotten.
 )
 
+type Status struct {
+	Sta Fate
+	N_p int
+	N_a int
+	V   interface{}
+}
+
 type Paxos struct {
 	mu         sync.Mutex
 	l          net.Listener
@@ -53,8 +60,28 @@ type Paxos struct {
 	peers      []string
 	me         int // index into peers[]
 
-
 	// Your data here.
+	maxIns  int
+	minIns  int
+	doneSeq int
+	status  map[int]*Status
+}
+
+//only a args
+type Args struct {
+	Name string
+	Pid  int
+	Seq  int
+	V    interface{}
+}
+
+//only a reply
+type NV struct {
+	Succ bool
+	Pid  int
+	Aid  int
+	Seq  int
+	V    interface{}
 }
 
 //
@@ -83,7 +110,6 @@ func call(srv string, name string, args interface{}, reply interface{}) bool {
 		return false
 	}
 	defer c.Close()
-
 	err = c.Call(name, args, reply)
 	if err == nil {
 		return true
@@ -93,6 +119,195 @@ func call(srv string, name string, args interface{}, reply interface{}) bool {
 	return false
 }
 
+//here is my function
+func (px *Paxos) checkStatus(seq int, v interface{}) {
+	px.mu.Lock()
+	defer px.mu.Unlock()
+	_, ok := px.status[seq]
+	if !ok {
+		px.status[seq] = &Status{Pending, -1, -1, v}
+	}
+}
+func (px *Paxos) Prepare(args *Args, reply *NV) {
+	if args.Name == px.peers[px.me] {
+		px.mu.Lock()
+		defer px.mu.Unlock()
+		if args.Pid <= px.status[args.Seq].N_p {
+			reply.Succ = false
+		} else {
+			reply.Succ = true
+			reply.V = px.status[args.Seq].V
+			px.status[args.Seq].N_p = args.Pid
+		}
+		reply.Pid = px.status[args.Seq].N_p
+	} else {
+		call(args.Name, "Paxos.PrepareSer", args, reply)
+	}
+}
+func (px *Paxos) PrepareSer(args *Args, reply *NV) error {
+	px.mu.Lock()
+	defer px.mu.Unlock()
+	_, ok := px.status[args.Seq]
+	if !ok {
+		px.status[args.Seq] = &Status{Pending, -1, -1, args.V}
+	}
+	if args.Pid <= px.status[args.Seq].N_p {
+		reply.Succ = false
+	} else {
+		reply.Succ = true
+		reply.V = px.status[args.Seq].V
+		px.status[args.Seq].N_p = args.Pid
+	}
+	reply.Pid = px.status[args.Seq].N_p
+	reply.Aid = px.status[args.Seq].N_a
+	return nil
+}
+func (px *Paxos) Accept(args *Args, reply *NV) {
+	if args.Name == px.peers[px.me] {
+		px.mu.Lock()
+		defer px.mu.Unlock()
+		if args.Pid < px.status[args.Seq].N_p {
+			reply.Succ = false
+		} else {
+			reply.Succ = true
+			px.status[args.Seq].N_p = args.Pid
+			px.status[args.Seq].N_a = args.Pid
+			px.status[args.Seq].V = args.V
+		}
+		reply.Pid = px.status[args.Seq].N_p
+	} else {
+		call(args.Name, "Paxos.AcceptSer", args, reply)
+	}
+}
+func (px *Paxos) AcceptSer(args *Args, reply *NV) error {
+	px.mu.Lock()
+	defer px.mu.Unlock()
+	_, ok := px.status[args.Seq]
+	//fmt.Println("args.Seq:", px.status[args.Seq], args.Name)
+	if !ok {
+		px.status[args.Seq] = &Status{Pending, -1, -1, args.V}
+	}
+	if args.Pid < px.status[args.Seq].N_p {
+		reply.Succ = false
+	} else {
+		reply.Succ = true
+		px.status[args.Seq].N_p = args.Pid
+		px.status[args.Seq].N_a = args.Pid
+		px.status[args.Seq].V = args.V
+		reply.V = args.V
+	}
+	reply.Pid = px.status[args.Seq].N_p
+	return nil
+}
+func (px *Paxos) Decide(args *Args, reply *NV) {
+	if args.Name == px.peers[px.me] {
+		px.mu.Lock()
+		defer px.mu.Unlock()
+		if args.Seq < px.minIns {
+			return
+		}
+		if px.maxIns < args.Seq {
+			px.maxIns = args.Seq
+		}
+		px.status[args.Seq].Sta = Decided
+		px.status[args.Seq].V = args.V
+	} else {
+		call(args.Name, "Paxos.DecideSer", args, reply)
+	}
+}
+func (px *Paxos) DecideSer(args *Args, reply *NV) error {
+	px.mu.Lock()
+	defer px.mu.Unlock()
+	if args.Seq < px.minIns {
+		return nil
+	}
+	_, ok := px.status[args.Seq]
+	if !ok {
+		px.status[args.Seq] = &Status{Pending, -1, -1, args.V}
+	}
+	px.status[args.Seq].Sta = Decided
+	px.status[args.Seq].V = args.V
+	if px.maxIns < args.Seq {
+		px.maxIns = args.Seq
+	}
+	return nil
+}
+func (px *Paxos) Instance(seq int, pid int, v interface{}) (Fate, int) {
+	maxInt := -1
+	sucInt := 0
+	//failId := 0
+	var maxSeq int
+	_, ok := px.status[seq]
+	px.mu.Lock()
+	if ok && px.status[seq].Sta == Decided || px.minIns > seq {
+		px.mu.Unlock()
+		return Forgotten, -1
+	}
+	if px.doneSeq > seq {
+		px.doneSeq = seq - 1
+	}
+	px.mu.Unlock()
+	for i := 0; i < len(px.peers); i++ {
+		var reply NV
+		args := &Args{}
+		args.Pid = pid
+		args.Seq = seq
+		args.Name = px.peers[i]
+		px.Prepare(args, &reply)
+		if reply.Succ {
+			sucInt++
+		}
+		if maxInt < reply.Aid && reply.V != nil {
+			v = reply.V
+			maxInt = reply.Aid
+		}
+		if maxSeq < reply.Pid {
+			maxSeq = reply.Pid
+		}
+		//fmt.Println("check:", px.me, maxSeq, sucInt, reply.Pid)
+	}
+	if sucInt <= len(px.peers)/2 {
+		//fmt.Println("pending:", px.me, maxSeq, sucInt)
+		return Pending, maxSeq
+	}
+	fmt.Println("repart:", px.me, maxSeq, sucInt, v)
+	sucInt = 0
+	//maxInt = 0
+	maxSeq = -1
+	for i := 0; i < len(px.peers); i++ {
+		var reply NV
+		args := &Args{}
+		args.Pid = pid
+		args.Seq = seq
+		args.Name = px.peers[i]
+		args.V = v
+		reply.Succ = false
+		px.Accept(args, &reply)
+		if reply.Succ {
+			sucInt++
+		}
+		if maxSeq < reply.Pid {
+			maxSeq = reply.Pid
+		}
+	}
+	if sucInt <= len(px.peers)/2 {
+		return Pending, maxSeq
+	}
+	for i := 0; i < len(px.peers); i++ {
+		var reply NV
+		args := &Args{}
+		args.Seq = seq
+		args.Name = px.peers[i]
+		args.V = v
+		px.Decide(args, &reply)
+	}
+	return Decided, maxSeq
+}
+func (px *Paxos) getNextPid(maxPid int) int {
+	tlen := len(px.peers)
+	val := maxPid / tlen
+	return (val+1)*tlen + px.me
+}
 
 //
 // the application wants paxos to start agreement on
@@ -103,6 +318,44 @@ func call(srv string, name string, args interface{}, reply interface{}) bool {
 //
 func (px *Paxos) Start(seq int, v interface{}) {
 	// Your code here.
+	//fmt.Println("maxSeqstart:", px.status[seq], px.me, seq)
+	go func() {
+		px.checkStatus(seq, v)
+		p := px.me
+		result, cur := px.Instance(seq, p, v)
+		r := rand.New(rand.NewSource(time.Now().UnixNano()))
+		for !px.isdead() && result != Decided {
+			time.Sleep(time.Duration(r.Intn(1000)) * time.Millisecond)
+			p = px.getNextPid(cur)
+			//fmt.Println("seq:", px.me, seq, p)
+			result, cur = px.Instance(seq, p, v)
+			if result == Forgotten {
+				return
+			}
+		}
+	}()
+}
+
+//for done
+func (px *Paxos) GetDone(args *Args, reply *NV) error {
+	px.mu.Lock()
+	defer px.mu.Unlock()
+	reply.Seq = px.doneSeq
+	px.minIns = reply.Seq + 1
+	return nil
+}
+
+func (px *Paxos) DecideDone(args *Args, reply *NV) error {
+	px.mu.Lock()
+	defer px.mu.Unlock()
+	for k, _ := range px.status {
+		if k <= args.Seq {
+			//fmt.Println("delete:", k, px.status[k])
+			delete(px.status, k)
+		}
+	}
+	px.minIns = args.Seq + 1
+	return nil
 }
 
 //
@@ -112,7 +365,56 @@ func (px *Paxos) Start(seq int, v interface{}) {
 // see the comments for Min() for more explanation.
 //
 func (px *Paxos) Done(seq int) {
+
 	// Your code here.
+	if seq < px.minIns {
+		return
+	}
+	if seq > px.maxIns {
+		seq = px.maxIns
+	}
+	if px.doneSeq < seq {
+		px.doneSeq = seq
+	}
+	result := px.doneSeq
+	for i := 0; i < len(px.peers); i++ {
+		if i == px.me {
+			continue
+		}
+		var reply NV
+		args := &Args{}
+		args.Seq = seq
+		args.Name = px.peers[i]
+		succ := call(args.Name, "Paxos.GetDone", args, &reply)
+
+		if !succ {
+			return
+		}
+		if result > reply.Seq {
+			result = reply.Seq
+		}
+	}
+	px.mu.Lock()
+	if result > px.doneSeq {
+		result = px.doneSeq
+	}
+	for k, _ := range px.status {
+		if k <= result {
+			delete(px.status, k)
+		}
+	}
+	px.minIns = result + 1
+	px.mu.Unlock()
+	for i := 0; i < len(px.peers); i++ {
+		if i == px.me {
+			continue
+		}
+		var reply NV
+		args := &Args{}
+		args.Seq = result
+		args.Name = px.peers[i]
+		call(args.Name, "Paxos.DecideDone", args, &reply)
+	}
 }
 
 //
@@ -122,7 +424,10 @@ func (px *Paxos) Done(seq int) {
 //
 func (px *Paxos) Max() int {
 	// Your code here.
-	return 0
+	/*if px.minIns > px.maxIns {
+		return -1
+	}*/
+	return px.maxIns
 }
 
 //
@@ -155,7 +460,7 @@ func (px *Paxos) Max() int {
 //
 func (px *Paxos) Min() int {
 	// You code here.
-	return 0
+	return px.minIns
 }
 
 //
@@ -167,10 +472,20 @@ func (px *Paxos) Min() int {
 //
 func (px *Paxos) Status(seq int) (Fate, interface{}) {
 	// Your code here.
-	return Pending, nil
+	px.mu.Lock()
+	defer px.mu.Unlock()
+	var v interface{}
+	if seq < px.minIns {
+		return Forgotten, v
+	}
+	_, ok := px.status[seq]
+	if !ok {
+		//fmt.Println("error?:")
+		px.status[seq] = &Status{Pending, -1, -1, v}
+		//fmt.Println("error!!:")
+	}
+	return px.status[seq].Sta, px.status[seq].V
 }
-
-
 
 //
 // tell the peer to shut itself down.
@@ -213,10 +528,11 @@ func Make(peers []string, me int, rpcs *rpc.Server) *Paxos {
 	px := &Paxos{}
 	px.peers = peers
 	px.me = me
-
-
+	px.status = make(map[int]*Status)
 	// Your initialization code here.
-
+	px.maxIns = -1
+	px.minIns = 0
+	px.doneSeq = 0
 	if rpcs != nil {
 		// caller will create socket &c
 		rpcs.Register(px)
@@ -267,7 +583,6 @@ func Make(peers []string, me int, rpcs *rpc.Server) *Paxos {
 			}
 		}()
 	}
-
 
 	return px
 }

@@ -190,10 +190,8 @@ func TestDeaf(t *testing.T) {
 
 	pxa[0].Start(0, "hello")
 	waitn(t, pxa, 0, npaxos)
-
 	os.Remove(pxh[0])
 	os.Remove(pxh[npaxos-1])
-
 	pxa[1].Start(1, "goodbye")
 	waitmajority(t, pxa, 1)
 	time.Sleep(1 * time.Second)
@@ -210,7 +208,6 @@ func TestDeaf(t *testing.T) {
 
 	pxa[npaxos-1].Start(1, "yyy")
 	waitn(t, pxa, 1, npaxos)
-
 	fmt.Printf("  ... Passed\n")
 }
 
@@ -238,7 +235,6 @@ func TestForget(t *testing.T) {
 			t.Fatalf("wrong initial Min() %v", m)
 		}
 	}
-
 	pxa[0].Start(0, "00")
 	pxa[1].Start(1, "11")
 	pxa[2].Start(2, "22")
@@ -246,7 +242,6 @@ func TestForget(t *testing.T) {
 	pxa[1].Start(7, "77")
 
 	waitn(t, pxa, 0, npaxos)
-
 	// Min() correct?
 	for i := 0; i < npaxos; i++ {
 		m := pxa[i].Min()
@@ -264,7 +259,6 @@ func TestForget(t *testing.T) {
 			t.Fatalf("wrong Min() %v; expected 0", m)
 		}
 	}
-
 	// everyone Done() -> Min() changes?
 	for i := 0; i < npaxos; i++ {
 		pxa[i].Done(0)
@@ -280,6 +274,7 @@ func TestForget(t *testing.T) {
 		allok = true
 		for i := 0; i < npaxos; i++ {
 			s := pxa[i].Min()
+			fmt.Println("s:", i, s)
 			if s != 1 {
 				allok = false
 			}
@@ -326,7 +321,6 @@ func TestManyForget(t *testing.T) {
 			runtime.Gosched()
 		}
 	}()
-
 	done := make(chan bool)
 	go func() {
 		for {
@@ -346,14 +340,12 @@ func TestManyForget(t *testing.T) {
 			runtime.Gosched()
 		}
 	}()
-
 	time.Sleep(5 * time.Second)
 	done <- true
 	for i := 0; i < npaxos; i++ {
 		pxa[i].setunreliable(false)
 	}
 	time.Sleep(2 * time.Second)
-
 	for seq := 0; seq < maxseq; seq++ {
 		for i := 0; i < npaxos; i++ {
 			if seq >= pxa[i].Min() {
@@ -424,7 +416,6 @@ func TestForgetMem(t *testing.T) {
 	var m2 runtime.MemStats
 	runtime.ReadMemStats(&m2)
 	// m2.Alloc about 10 megabytes
-
 	if m2.Alloc > (m1.Alloc / 2) {
 		t.Fatalf("memory use did not shrink enough")
 	}
@@ -541,7 +532,6 @@ func TestRPCCount(t *testing.T) {
 		t.Fatalf("too many RPCs for serial Start()s; %v instances, got %v, expected %v",
 			ninst1, total1, expected1)
 	}
-
 	ninst2 := 5
 	for i := 0; i < ninst2; i++ {
 		for j := 0; j < npaxos; j++ {
@@ -552,13 +542,11 @@ func TestRPCCount(t *testing.T) {
 	}
 
 	time.Sleep(2 * time.Second)
-
 	total2 := int32(0)
 	for j := 0; j < npaxos; j++ {
 		total2 += atomic.LoadInt32(&pxa[j].rpcCount)
 	}
 	total2 -= total1
-
 	// worst case per agreement:
 	// Proposer 1: 3 prep, 3 acc, 3 decides.
 	// Proposer 2: 3 prep, 3 acc, 3 prep, 3 acc, 3 decides.
@@ -592,7 +580,6 @@ func TestMany(t *testing.T) {
 		pxa[i] = Make(pxh, i, nil)
 		pxa[i].Start(0, 0)
 	}
-
 	const ninst = 50
 	for seq := 1; seq < ninst; seq++ {
 		// only 5 active instances, to limit the
@@ -604,7 +591,6 @@ func TestMany(t *testing.T) {
 			pxa[i].Start(seq, (seq*10)+i)
 		}
 	}
-
 	for {
 		done := true
 		for seq := 1; seq < ninst; seq++ {
@@ -877,6 +863,7 @@ func TestLots(t *testing.T) {
 	done := int32(0)
 
 	// re-partition periodically
+	fmt.Println("p1")
 	ch1 := make(chan bool)
 	go func() {
 		defer func() { ch1 <- true }()
@@ -902,6 +889,7 @@ func TestLots(t *testing.T) {
 	seq := int32(0)
 
 	// periodically start a new instance
+	fmt.Println("p2")
 	ch2 := make(chan bool)
 	go func() {
 		defer func() { ch2 <- true }()
@@ -925,6 +913,7 @@ func TestLots(t *testing.T) {
 	}()
 
 	// periodically check that decisions are consistent
+	fmt.Println("p3")
 	ch3 := make(chan bool)
 	go func() {
 		defer func() { ch3 <- true }()
@@ -935,7 +924,7 @@ func TestLots(t *testing.T) {
 			time.Sleep(time.Duration(rand.Int63()%300) * time.Millisecond)
 		}
 	}()
-
+	fmt.Println("p4")
 	time.Sleep(20 * time.Second)
 	atomic.StoreInt32(&done, 1)
 	<-ch1
@@ -952,6 +941,6 @@ func TestLots(t *testing.T) {
 	for i := 0; i < int(atomic.LoadInt32(&seq)); i++ {
 		waitmajority(t, pxa, i)
 	}
-
+	fmt.Println("p5")
 	fmt.Printf("  ... Passed\n")
 }
