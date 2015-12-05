@@ -125,7 +125,7 @@ func (px *Paxos) checkStatus(seq int, v interface{}) {
 	defer px.mu.Unlock()
 	_, ok := px.status[seq]
 	if !ok {
-		px.status[seq] = &Status{Pending, -1, -1, v}
+		px.status[seq] = &Status{Pending, -1, -1, nil}
 	}
 }
 func (px *Paxos) Prepare(args *Args, reply *NV) {
@@ -149,7 +149,7 @@ func (px *Paxos) PrepareSer(args *Args, reply *NV) error {
 	defer px.mu.Unlock()
 	_, ok := px.status[args.Seq]
 	if !ok {
-		px.status[args.Seq] = &Status{Pending, -1, -1, args.V}
+		px.status[args.Seq] = &Status{Pending, -1, -1, nil}
 	}
 	if args.Pid <= px.status[args.Seq].N_p {
 		reply.Succ = false
@@ -185,7 +185,7 @@ func (px *Paxos) AcceptSer(args *Args, reply *NV) error {
 	_, ok := px.status[args.Seq]
 	//fmt.Println("args.Seq:", px.status[args.Seq], args.Name)
 	if !ok {
-		px.status[args.Seq] = &Status{Pending, -1, -1, args.V}
+		px.status[args.Seq] = &Status{Pending, -1, -1, nil}
 	}
 	if args.Pid < px.status[args.Seq].N_p {
 		reply.Succ = false
@@ -223,7 +223,7 @@ func (px *Paxos) DecideSer(args *Args, reply *NV) error {
 	}
 	_, ok := px.status[args.Seq]
 	if !ok {
-		px.status[args.Seq] = &Status{Pending, -1, -1, args.V}
+		px.status[args.Seq] = &Status{Pending, -1, -1, nil}
 	}
 	px.status[args.Seq].Sta = Decided
 	px.status[args.Seq].V = args.V
@@ -270,7 +270,7 @@ func (px *Paxos) Instance(seq int, pid int, v interface{}) (Fate, int) {
 		//fmt.Println("pending:", px.me, maxSeq, sucInt)
 		return Pending, maxSeq
 	}
-	fmt.Println("repart:", px.me, maxSeq, sucInt, v)
+	//fmt.Println("repart:", px.me, maxSeq, sucInt, v)
 	sucInt = 0
 	//maxInt = 0
 	maxSeq = -1
@@ -327,7 +327,7 @@ func (px *Paxos) Start(seq int, v interface{}) {
 		for !px.isdead() && result != Decided {
 			time.Sleep(time.Duration(r.Intn(1000)) * time.Millisecond)
 			p = px.getNextPid(cur)
-			//fmt.Println("seq:", px.me, seq, p)
+
 			result, cur = px.Instance(seq, p, v)
 			if result == Forgotten {
 				return
@@ -427,6 +427,8 @@ func (px *Paxos) Max() int {
 	/*if px.minIns > px.maxIns {
 		return -1
 	}*/
+	px.mu.Lock()
+	defer px.mu.Unlock()
 	return px.maxIns
 }
 
@@ -459,6 +461,8 @@ func (px *Paxos) Max() int {
 // instances.
 //
 func (px *Paxos) Min() int {
+	px.mu.Lock()
+	defer px.mu.Unlock()
 	// You code here.
 	return px.minIns
 }

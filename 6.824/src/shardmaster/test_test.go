@@ -45,7 +45,6 @@ func check(t *testing.T, groups []int64, ck *Clerk) {
 			t.Fatalf("missing group %v", g)
 		}
 	}
-
 	// any un-allocated shards?
 	if len(groups) > 0 {
 		for s, g := range c.Shards {
@@ -64,6 +63,7 @@ func check(t *testing.T, groups []int64, ck *Clerk) {
 	min := 257
 	max := 0
 	for g, _ := range c.Groups {
+		fmt.Println("maxandmin:", counts[g], g)
 		if counts[g] > max {
 			max = counts[g]
 		}
@@ -71,6 +71,7 @@ func check(t *testing.T, groups []int64, ck *Clerk) {
 			min = counts[g]
 		}
 	}
+	fmt.Println("max,min:", max, min)
 	if max > min+1 {
 		t.Fatalf("max %v too much larger than min %v", max, min)
 	}
@@ -120,6 +121,7 @@ func TestBasic(t *testing.T) {
 
 	cfx := ck.Query(-1)
 	sa1 := cfx.Groups[gid1]
+
 	if len(sa1) != 3 || sa1[0] != "x" || sa1[1] != "y" || sa1[2] != "z" {
 		t.Fatalf("wrong servers for gid %v: %v\n", gid1, sa1)
 	}
@@ -127,11 +129,9 @@ func TestBasic(t *testing.T) {
 	if len(sa2) != 3 || sa2[0] != "a" || sa2[1] != "b" || sa2[2] != "c" {
 		t.Fatalf("wrong servers for gid %v: %v\n", gid2, sa2)
 	}
-
 	ck.Leave(gid1)
 	check(t, []int64{gid2}, ck)
 	cfa[4] = ck.Query(-1)
-
 	ck.Leave(gid1)
 	check(t, []int64{gid2}, ck)
 	cfa[5] = ck.Query(-1)
@@ -361,6 +361,7 @@ func TestFreshQuery(t *testing.T) {
 	ck0 := MakeClerk([]string{portx})
 
 	ck1.Join(1001, []string{"a", "b", "c"})
+	fmt.Println("c:", portx, kvh)
 	c := ck0.Query(-1)
 	_, ok := c.Groups[1001]
 	if ok == false {
