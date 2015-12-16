@@ -5,10 +5,13 @@ import "crypto/rand"
 import "math/big"
 
 import "fmt"
+import "time"
 
 type Clerk struct {
 	servers []string
 	// You will have to modify this struct.
+	rpcid    int
+	clientid int64
 }
 
 func nrand() int64 {
@@ -22,6 +25,8 @@ func MakeClerk(servers []string) *Clerk {
 	ck := new(Clerk)
 	ck.servers = servers
 	// You'll have to add code here.
+	ck.rpcid = 0
+	ck.clientid = nrand()
 	return ck
 }
 
@@ -66,7 +71,22 @@ func call(srv string, rpcname string,
 //
 func (ck *Clerk) Get(key string) string {
 	// You will have to modify this function.
-	return ""
+	args := &GetArgs{key, "Get", ck.rpcid, ck.clientid}
+	ok := false
+	ck.rpcid = ck.rpcid + 1
+	length := len(ck.servers)
+	i := 0
+	reply := &GetReply{}
+	for !ok /*&& i < length*/ {
+		ok = call(ck.servers[i], "KVPaxos.Get", args, reply)
+		i = (i + 1) % length
+		if ok {
+			break
+		}
+		//i++
+		time.Sleep(100 * time.Millisecond)
+	}
+	return reply.Value
 }
 
 //
@@ -74,6 +94,21 @@ func (ck *Clerk) Get(key string) string {
 //
 func (ck *Clerk) PutAppend(key string, value string, op string) {
 	// You will have to modify this function.
+	args := &PutAppendArgs{key, value, op, ck.rpcid, ck.clientid}
+	var reply PutAppendReply
+	ck.rpcid = ck.rpcid + 1
+	length := len(ck.servers)
+	ok := false
+	i := 0
+	for reply.Err != OK || !ok /*&& i < length*/ {
+		ok = call(ck.servers[i], "KVPaxos.PutAppend", args, &reply)
+		i = (i + 1) % length
+		//i++
+		if ok && reply.Err == OK {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func (ck *Clerk) Put(key string, value string) {

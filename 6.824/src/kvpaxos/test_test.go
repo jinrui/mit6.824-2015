@@ -74,7 +74,9 @@ func TestBasic(t *testing.T) {
 	cka[1].Put("a", "aaa")
 
 	check(t, cka[2], "a", "aaa")
+	//fmt.Println("haha")
 	check(t, cka[1], "a", "aaa")
+	//fmt.Println("gaga")
 	check(t, ck, "a", "aaa")
 
 	fmt.Printf("  ... Passed\n")
@@ -411,11 +413,14 @@ func TestUnreliable(t *testing.T) {
 				vv := myck.Get(key)
 				myck.Append(key, "0")
 				vv = NextValue(vv, "0")
+				//fmt.Println("1VV:", iters, vv, myck.Get(key))
 				myck.Append(key, "1")
 				vv = NextValue(vv, "1")
+				//fmt.Println("2VV:", iters, vv, myck.Get(key))
 				myck.Append(key, "2")
 				vv = NextValue(vv, "2")
 				time.Sleep(100 * time.Millisecond)
+				//fmt.Println("lastVV:", iters, vv, myck.Get(key))
 				if myck.Get(key) != vv {
 					t.Fatalf("wrong value")
 				}

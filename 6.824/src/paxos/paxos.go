@@ -325,7 +325,7 @@ func (px *Paxos) Start(seq int, v interface{}) {
 		result, cur := px.Instance(seq, p, v)
 		r := rand.New(rand.NewSource(time.Now().UnixNano()))
 		for !px.isdead() && result != Decided {
-			time.Sleep(time.Duration(r.Intn(1000)) * time.Millisecond)
+			time.Sleep(time.Duration(r.Intn(100)) * time.Millisecond)
 			p = px.getNextPid(cur)
 
 			result, cur = px.Instance(seq, p, v)

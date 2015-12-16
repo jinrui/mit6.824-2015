@@ -30,7 +30,7 @@ type ShardMaster struct {
 type Op struct {
 	// Your data here.
 	Port int
-	Typ  int
+	Typ  string
 	Args interface{}
 }
 
@@ -88,7 +88,7 @@ func (sm *ShardMaster) Join(args *JoinArgs, reply *JoinReply) error {
 	// Your code here.
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	anop := Op{sm.me, 0, *args}
+	anop := Op{sm.me, "Join", *args}
 	cur := sm.px.Max() + 1
 	//res := Encode(anop)
 	/*var tmp Op
@@ -143,7 +143,7 @@ func (sm *ShardMaster) Leave(args *LeaveArgs, reply *LeaveReply) error {
 	//aveNumForGid := gids[args.GID] / (len(gids) - 1)
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	anop := Op{sm.me, 1, *args}
+	anop := Op{sm.me, "Leave", *args}
 
 	cur := sm.px.Max() + 1
 	//res := Encode(anop)
@@ -198,7 +198,7 @@ func (sm *ShardMaster) Move(args *MoveArgs, reply *MoveReply) error {
 	// Your code here.
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	anop := Op{sm.me, 2, *args}
+	anop := Op{sm.me, "Move", *args}
 	cur := sm.px.Max() + 1
 	//res := Encode(anop)
 	sm.StartPaxos(cur, anop, anop.Port)
@@ -233,12 +233,12 @@ func (sm *ShardMaster) Query(args *QueryArgs, reply *QueryReply) error {
 		_, curTStatus := sm.px.Status(sm.curSeq)
 		var curStatus Op
 		Decode(Encode(curTStatus), &curStatus)
-		if curStatus.Typ == 0 {
+		if curStatus.Typ == "Join" {
 			var jargs JoinArgs
 			//fmt.Println("curStatus.Args:", curTStatus, curStatus)
 			Decode(Encode(curStatus.Args), &jargs)
 			sm.joinImp(&jargs, &JoinReply{})
-		} else if curStatus.Typ == 1 {
+		} else if curStatus.Typ == "Leave" {
 			var largs LeaveArgs
 			Decode(Encode(curStatus.Args), &largs)
 			sm.leaveImp(&largs, &LeaveReply{})
